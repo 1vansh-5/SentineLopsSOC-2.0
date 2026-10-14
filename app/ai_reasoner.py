@@ -28,7 +28,7 @@ def analyze_alert(alert: dict) -> dict:
     """Analyze a single alert. If Gemini is unavailable, use the deterministic rule-based assessment."""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        return _fallback(alert, "AQ.Ab8RN6KrvifzSTWIFrLDoEirvIP0lA72oRSyH0DvDdJe7O5weQ is not configured")
+        return _fallback(alert, "GEMINI_API_KEY is not configured")
 
     # Treat alert fields as untrusted data. Never provide tools or permission to execute actions.
     safe_alert = {
