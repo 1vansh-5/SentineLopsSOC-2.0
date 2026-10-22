@@ -1,13 +1,20 @@
 
-"""Bounded read-only investigation planner."""
+"""Bounded read-only investigation planner with evidence provenance."""
 
 from .evidence_tools import ALLOWED_TOOLS, retrieve_evidence
+from .evidence_provenance import validate_evidence_provenance
 
 
-def investigate_evidence(alert: dict, max_steps: int = 4) -> dict:
-    """Retrieve each permitted evidence category at most once."""
+def investigate_evidence(
+    alert: dict,
+    max_steps: int = 4,
+) -> dict:
+    """Retrieve permitted evidence and assess its trust status."""
 
-    if not isinstance(max_steps, int) or not 1 <= max_steps <= 4:
+    if (
+        type(max_steps) is not int
+        or not 1 <= max_steps <= 4
+    ):
         raise ValueError("max_steps must be between 1 and 4")
 
     event_type = alert.get("event_type")
@@ -28,18 +35,20 @@ def investigate_evidence(alert: dict, max_steps: int = 4) -> dict:
         ]
 
     trace = []
+
     for tool_name in priority[:max_steps]:
         if tool_name not in ALLOWED_TOOLS:
             continue
 
         result = retrieve_evidence(tool_name, alert)
+
         trace.append({
             "step": len(trace) + 1,
             "tool": tool_name,
             "result": result,
         })
 
-    return {
+    investigation = {
         "investigation_status": "evidence_collection_completed",
         "steps_taken": len(trace),
         "trace": trace,
@@ -49,3 +58,12 @@ def investigate_evidence(alert: dict, max_steps: int = 4) -> dict:
             "of attack success or failure."
         ),
     }
+
+    provenance = validate_evidence_provenance({
+        "investigation": investigation
+    })
+
+    investigation["provenance"] = provenance
+    investigation["evidence_trusted"] = provenance["trusted"]
+
+    return investigation
