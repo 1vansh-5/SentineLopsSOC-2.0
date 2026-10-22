@@ -1,71 +1,149 @@
-# SentineLopsSOC-2.0
-this is an upgraded version of the last repository
-# SentinelOps SOC Starter — Gemini-assisted (safe simulation)
+# SentinelOps SOC 2.0
 
-A beginner-friendly FastAPI backend for SentinelOps. It includes SQLite storage, synthetic alerts, rule-based classification, optional Gemini-assisted triage, and simulated-only response recommendations. It does **not** capture live traffic or modify a real firewall.
+SentinelOps is a local security-operations prototype that takes a synthetic alert
+through investigation, authenticated evidence, analyst review, simulated response,
+verification and rollback. Responses change SQLite records only. No firewall,
+cloud account, host agent or production network is controlled by this project.
+The name means a security operations center project version; it does not claim
+SOC 2 compliance or certification.
 
-## 1. Secure setup (Windows PowerShell)
+The repository separates application code in `app/`, regression suites in `tests/`,
+operator commands in `scripts/`, and guides, evidence and the presentation in
+`docs/`. Use `manage.py` from the root for common commands. See the
+[folder map](docs/FILE_STRUCTURE.md) and [upload guide](GITHUB_UPLOAD.md).
 
-From the project folder:
+## Local setup
 
-```powershell
-py -m venv .venv
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+Supported and locally tested: Windows, Python 3.15.0 and Node.js 26.7.0. Node 20+
+is required by frontend contract tests. Python dependencies are pinned to 35
+packages. No frontend package installation or build is required.
 
-Set secrets only in this terminal session. Replace the placeholder with your own key locally; do not paste it into chat, source code, screenshots, or GitHub:
-
-```powershell
-$env:GEMINI_API_KEY="YOUR_GEMINI_KEY_HERE"
-$env:SENTINELOPS_API_KEY="replace-this-with-a-long-random-secret"
-$env:ALLOWED_ORIGINS="http://localhost:5500,http://127.0.0.1:5500"
-```
-
-For a strong local `SENTINELOPS_API_KEY`, generate one with:
+For a new empty folder extracted from this organized source archive:
 
 ```powershell
-python -c "import secrets; print(secrets.token_urlsafe(32))"
+py -3.15 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r .\requirements.txt
+if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+.\.venv\Scripts\python.exe -m pip check
+if ($LASTEXITCODE -ne 0) { throw 'Dependency check failed' }
+node --version
+.\.venv\Scripts\python.exe .\manage.py checks --socket-free-http
+if ($LASTEXITCODE -ne 0) { throw 'Gate failed; inspect STEP12_TEST_RESULTS.txt' }
+.\.venv\Scripts\python.exe .\manage.py demo
 ```
 
-Copy the generated value into the environment variable. These variables disappear when you close the terminal; set them again in a new terminal. For deployment, use the hosting provider's secret/environment-variable settings, not a committed `.env` file.
+Open http://127.0.0.1:8765/dashboard. Connect as demo_analyst with the launcher's
+generated one-session token. Keep the token-bearing terminal private. The demo
+uses temporary databases, disables live Gemini and seeds three synthetic cases.
+Stop with Ctrl+C to remove its databases. Restart for fresh evidence after ten
+minutes. No .env or production credentials are needed.
 
-If PowerShell activation is blocked, skip activation and use the venv Python directly:
+This is a complete organized source tree. Extract into a new folder and follow
+these commands. No historical overlay installer is needed. Existing .env and
+databases stay private in your working project; they are not in this archive.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[Synthetic alert] --> B[API key protected ingestion]
+    B --> C[Investigation]
+    E[Registered collector: signed evidence] --> C
+    C --> D[Deterministic authenticated assessment]
+    C -. Optional bounded Gemini assistance .-> G[Schema validated suggestion]
+    D --> P[Pending response request]
+    P --> H[Explicit analyst approval]
+    H --> X[Fresh evidence and identity recheck]
+    X --> S[SQLite simulated effect and receipt]
+    S --> V[Synthetic SQLite verification]
+    V --> R[Explicit rollback]
+```
+
+The model cannot approve or execute. Synthetic placeholder evidence cannot
+authorize execution. The authenticated path requires two current signed
+observations bound to the incident and source IP. Approval and execution are
+separate calls. Execution rechecks identity, collector state, evidence age and
+the immutable approval binding inside coordinated transactions.
+
+Three SQLite stores separate incident/response data, analyst identity, and
+collector trust state. Signing keys come from server configuration; analyst
+tokens are stored as hashes. The browser keeps analyst credentials in memory.
+[Architecture](docs/ARCHITECTURE.md) explains the boundaries and lifecycle.
+
+## API and authentication
+
+| Surface | Authentication | Purpose |
+| --- | --- | --- |
+| GET /health, /dashboard | Public | Health and static dashboard shell |
+| POST /webhook/alert, /simulate/attack | X-API-Key | Ingestion / synthetic alert |
+| POST /alerts/{id}/investigate | X-API-Key | Initial bounded investigation |
+| POST /incidents/{id}/evidence/submit | API key plus signed envelope | Evidence ingestion |
+| POST /incidents/{id}/investigate-authenticated | Analyst/admin | Assessment from current signed observations |
+| POST /response-requests/for-incident/{id} | Analyst/admin | Propose a pending request |
+| POST /response-requests/{id}/decision | Analyst/admin | APPROVED or REJECTED with reason |
+| POST /response-requests/{id}/execute | Analyst/admin plus Idempotency-Key | SQLite simulation only |
+| POST /response-requests/{id}/verify | Analyst/admin | Synthetic verification |
+| POST /response-requests/{id}/rollback | Analyst/admin plus Idempotency-Key | Remove the simulated effect |
+| GET /alerts, /incidents, /response-requests, /audit-history | Viewer or analyst/admin | Protected history |
+| GET /incidents/{id}/evidence, /simulated-blocks, /ai/status | Viewer or analyst/admin | Evidence, effects and config |
+| GET /dashboard/api/identity, /overview, /incidents/{id} | Viewer or analyst/admin | Safe dashboard snapshots |
+
+Analyst headers are X-Analyst-Id and X-Analyst-Token. A viewer cannot mutate.
+Idempotency keys contain 16–128 ASCII letters, digits, hyphens or underscores.
+Reuse a key only to retry the same operation. A replayed receipt is historical;
+it does not recreate an effect after rollback. Full schemas are in /openapi.json
+and the local /docs page. The legacy /incidents/{alert_id}/investigate alias takes
+an **alert** ID; use the canonical /alerts route for new integrations.
+
+## Repeatable validation
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-$env:GEMINI_API_KEY="YOUR_GEMINI_KEY_HERE"
-$env:SENTINELOPS_API_KEY="replace-this-with-a-long-random-secret"
-$env:ALLOWED_ORIGINS="http://localhost:5500,http://127.0.0.1:5500"
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+.\.venv\Scripts\python.exe .\manage.py checks --socket-free-http
+if ($LASTEXITCODE -ne 0) { throw 'Regression gate failed' }
+$report = ".\walkthrough-$((Get-Date).ToString('yyyyMMdd-HHmmss')).json"
+.\.venv\Scripts\python.exe .\manage.py walkthrough --output $report
+if ($LASTEXITCODE -ne 0) { throw 'Walkthrough failed' }
 ```
 
-## 2. Start and test
+Expected: **30/30 test jobs passed; cleanup: PASSED**, then **9/9 walkthrough
+stages passed; cleanup: PASSED**. These are jobs/stages, not assertion counts.
+All 28 Step 11 jobs remain, including three concurrency repetitions. Two new jobs
+validate the final replay and documentation/route contracts. Each job uses a
+disposable source copy; non-loopback outbound Python network calls are blocked.
+`--socket-free-http` exercises actual in-process ASGI HTTP routes without a
+listening socket. It does not test browser rendering or TCP integration.
 
-```powershell
-python -m uvicorn app.main:app --reload
-```
+The replay covers current signed synthetic evidence, missing/viewer authorization,
+execution before approval, explicit approval, simulated execution, duplicate
+execution, verification, rollback/retry and historical replay after rollback.
+Its JSON excludes credentials, raw evidence envelopes and database paths.
 
-Open `http://127.0.0.1:8000/docs`. The backend will use Gemini if the key is configured. If the Gemini request fails or no key is set, it uses the deterministic rule-based fallback and reports `ai_status: fallback_rules`.
+## Configuration and operations
 
-1. In `POST /simulate/attack`, create a synthetic alert. Example:
+See [Step 11 operations](docs/guides/README_STEP11.md) for configuration, identity provisioning,
+collector registration, backup/restore and staged schema upgrades. The supported
+launcher is `python manage.py serve`: loopback, one worker, dependency checks and an
+allowlist of .env settings. Do not overwrite an existing .env with .env.example.
 
-```json
-{"scenario":"brute_force","source_ip":"198.51.100.23","target":"demo-login"}
-```
+Optional Gemini requires your local GEMINI_API_KEY, an explicit GEMINI_MODEL and
+SENTINELOPS_GEMINI_ENABLED=1. Attempts require at least 10000 ms; defaults are
+15000 ms per attempt and a 60000 ms workflow budget. The offline gate makes no
+live provider call. Earlier operator-reported live success does not establish
+current credentials or provider availability.
 
-2. For protected endpoints, add request header `X-API-Key` with the `SENTINELOPS_API_KEY` value.
-3. Copy the returned alert `id`.
-4. Call `POST /incidents/{alert_id}/investigate` using that ID.
-5. Inspect `assessment`, `confidence`, `evidence`, `recommended_next_steps`, `ai_status`, and `response_status`.
+The ci/ file is a template, not an installed GitHub workflow. Docker is experimental
+and unexecuted here. The clean-source ZIP contains no .env, SQLite data, credentials,
+virtual environment, Git history or private backup.
 
-## Security notes
+## Portfolio handoff
 
-- Never put `GEMINI_API_KEY` in browser JavaScript or the GitHub Pages frontend. Keep model calls on the backend.
-- Never commit a real API key. `.env` is ignored by Git; `.env.example` contains placeholders only.
-- Treat model output as untrusted advisory data. The application validates its structure and still uses only simulated response actions.
-- A single alert usually cannot prove a successful compromise. Correlate with server/authentication logs, asset inventory, vulnerability data, and verification evidence.
-- Before deploying publicly, add rate limiting, request-size limits, authentication/authorization, secret rotation, audit logging, and provider-side key restrictions. Restrict CORS to the exact frontend origin you control.
-- The demo stores incident evidence in SQLite. Do not send real customer secrets, credentials, or sensitive production logs to a model without an approved data-handling policy.
+- [Three-minute walkthrough and capture plan](docs/DEMO_SCRIPT.md)
+- [Threat model and limitations](docs/THREAT_MODEL.md)
+- [Final evidence and release checklist](docs/FINAL_VALIDATION.md)
+- [Technical presentation outline](docs/PRESENTATION.md)
+
+The companion editable PPTX is distributed separately from source. Actual browser
+screenshots and a dashboard video remain a manual capture task: browser connections
+were unavailable in the restricted build environment. No diagram or slide is
+represented as a screenshot. Synthetic observations and SQLite probes do not
+establish real attack efficacy, network containment or production readiness.
